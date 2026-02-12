@@ -62,7 +62,7 @@ class PlayerStatsStore:
             self._ensure_entry(stats, uid, self._get_member_name(guild, uid))
         await self.save(stats)
 
-    async def record_match(self, guild: discord.Guild | None, winners: list[int], losers: list[int], delta: int = 50):
+    async def record_match(self, guild: discord.Guild | None, winners: list[int], losers: list[int], delta: int):
         """
         Record the results of a match, updating points, wins, and losses.
         """

@@ -11,7 +11,7 @@ class JoinView(discord.ui.View):
         self.lobby = lobby
         self.team_a: list[int] = []
         self.team_b: list[int] = []
-        self.points_delta = 50
+        self.points_delta = 25
 
     def _add_match_buttons(self):
         btn_a = discord.ui.Button(label="Team A Wins", style=discord.ButtonStyle.success)
@@ -135,6 +135,8 @@ class JoinView(discord.ui.View):
             return await interaction.response.send_message("Wrong server.", ephemeral=True)
         if self.lobby.started:
             return await interaction.response.send_message("Game already started.", ephemeral=True)
+        if len(self.lobby.players) >= 10 and interaction.user.id not in self.lobby.players:
+            return await interaction.response.send_message("Queue is full (10 players max).", ephemeral=True)
         joined = self.lobby.add(interaction.user.id)
         if joined:
             store = PlayerStatsStore(interaction.guild.id)

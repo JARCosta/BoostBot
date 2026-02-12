@@ -13,6 +13,8 @@ class Lobby:
     def add(self, user_id: int):
         if self.started:
             return False
+        if len(self.players) >= 10 and user_id not in self.players:
+            return False
         self.players.add(user_id)
         return True
 
