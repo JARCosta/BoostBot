@@ -10,6 +10,7 @@ class Lobby:
         self.started = False
         self.finished = False
 
+
     def add(self, user_id: int):
         if self.started:
             return False
@@ -17,6 +18,14 @@ class Lobby:
             return False
         self.players.add(user_id)
         return True
+
+    def remove(self, user_id: int):
+        if self.started:
+            return False
+        if user_id in self.players:
+            self.players.remove(user_id)
+            return True
+        return False
 
 
 def format_player_mentions(guild: discord.Guild | None, player_ids):

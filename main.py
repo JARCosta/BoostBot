@@ -30,16 +30,14 @@ guild_queue_messages: dict[int, discord.Message] = {}
 
 @bot.event
 async def on_ready():
-    # Sync commands globally for availability
-    print("Syncing commands globally...")
-    # try:
-    synced = await bot.tree.sync()
-    print(f"✓ Global sync complete. Synced {len(synced)} command(s).")
-    # except Exception as e:
-    #     print(f"✗ Failed to sync commands globally: {e}")
-    #     print("  - Ensure bot has 'applications.commands' OAuth2 scope")
-    #     print("  - Check bot permissions in server(s)")
-
+    # Sync commands per-guild for faster updates
+    print("Syncing commands per-guild...")
+    for guild in bot.guilds:
+        try:
+            synced = await bot.tree.sync(guild=guild)
+            print(f"✓ Synced {len(synced)} command(s) for guild {guild.name} ({guild.id})")
+        except Exception as e:
+            print(f"✗ Failed to sync commands for guild {guild.name} ({guild.id}): {e}")
     print(f"Logged in as {bot.user} (id: {bot.user.id})")
 
 
@@ -61,7 +59,6 @@ async def startqueue(interaction: discord.Interaction, title: str | None = None)
 
     # Always create a fresh lobby
     lobby = Lobby(host_id=interaction.user.id, title=title or "Queue")
-    lobby.add(interaction.user.id)
     guild_lobbies[gid] = lobby
 
     store = PlayerStatsStore(interaction.guild.id)
@@ -74,6 +71,39 @@ async def startqueue(interaction: discord.Interaction, title: str | None = None)
     )
     if msg:
         guild_queue_messages[gid] = msg
+
+
+@bot.tree.command(name="kickfromqueue", description="Remove a mentioned user from the current queue")
+@discord.app_commands.describe(user="User to remove from the queue")
+async def kickfromqueue(interaction: discord.Interaction, user: discord.Member):
+    if interaction.guild is None:
+        return await interaction.response.send_message("Use this in a server.", ephemeral=True)
+
+    gid = interaction.guild.id
+    lobby = guild_lobbies.get(gid)
+    if not lobby or lobby.started:
+        return await interaction.response.send_message("No open queue. Start one first.", ephemeral=True)
+
+    is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
+    if interaction.user.id != lobby.host_id and not is_admin:
+        return await interaction.response.send_message("Only the host or a server admin can kick players.", ephemeral=True)
+
+    removed = lobby.remove(user.id)
+    if not removed:
+        return await interaction.response.send_message("Could not remove user (not in queue or queue started).", ephemeral=True)
+
+    view = JoinView(gid, lobby)
+    msg = guild_queue_messages.get(gid)
+    if msg:
+        await msg.edit(embed=None, view=view)
+        await view.update_queue_message(interaction,
+            note=f"{user.display_name} was kicked by {interaction.user.display_name}.",
+            target_message=msg
+        )
+        await interaction.response.send_message(f"{user.display_name} removed from the queue.", ephemeral=True)
+        return
+
+    await interaction.response.send_message("Could not update queue message. Please try again.", ephemeral=True)
 
 
 @bot.tree.command(name="addtoqueue", description="Add a mentioned user to the current queue")
