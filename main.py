@@ -9,7 +9,9 @@ from dotenv import load_dotenv
 from .lobby import Lobby
 from .stats_store import PlayerStatsStore
 from .views import JoinView
+from logging_config import setup_logging
 
+log = setup_logging("boost_bot")
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -18,9 +20,18 @@ intents.message_content = True
 intents.members = True
 intents.guild_messages = True
 
-bot = commands.Bot(command_prefix="!", intents=intents, sync_commands=True)
+class BoostBot(commands.Bot):
+    async def setup_hook(self):
+        # Sync after all @bot.tree.command decorators have registered (this module is loaded)
+        log.info("Syncing app commands...")
+        try:
+            synced = await self.tree.sync()
+            log.info("Synced %d command(s) globally", len(synced))
+        except Exception as e:
+            log.exception("Failed to sync commands: %s", e)
 
 
+bot = BoostBot(command_prefix="!", intents=intents, sync_commands=False)
 
 # Per-guild lobby state: guild_id -> Lobby
 guild_lobbies: dict[int, Lobby] = {}
@@ -30,15 +41,7 @@ guild_queue_messages: dict[int, discord.Message] = {}
 
 @bot.event
 async def on_ready():
-    # Sync commands per-guild for faster updates
-    print("Syncing commands per-guild...")
-    for guild in bot.guilds:
-        try:
-            synced = await bot.tree.sync(guild=guild)
-            print(f"✓ Synced {len(synced)} command(s) for guild {guild.name} ({guild.id})")
-        except Exception as e:
-            print(f"✗ Failed to sync commands for guild {guild.name} ({guild.id}): {e}")
-    print(f"Logged in as {bot.user} (id: {bot.user.id})")
+    log.info("Logged in as %s (id: %s)", bot.user, bot.user.id)
 
 
 
@@ -204,9 +207,11 @@ async def leaderboard(interaction: discord.Interaction):
 
 def run_bot():
     if not TOKEN:
-        print("Set DISCORD_TOKEN environment variable with your bot token.")
+        log.error("Set DISCORD_TOKEN environment variable with your bot token.")
     else:
         bot.run(TOKEN)
 
 if __name__ == "__main__":
     run_bot()
+
+

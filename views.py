@@ -1,6 +1,11 @@
 import discord
+
+from logging_config import setup_logging
 from .lobby import Lobby, format_player_mentions
 from .stats_store import PlayerStatsStore
+
+log = setup_logging("boost_bot.views")
+
 
 class JoinView(discord.ui.View):
     """View for joining a game lobby and managing match lifecycle."""
@@ -105,7 +110,7 @@ class JoinView(discord.ui.View):
                     await target_message.edit(embed=embed, view=self)
                     return target_message
                 except Exception as e:
-                    print(f"Failed to edit target message: {e}")
+                    log.warning("Failed to edit target message: %s", e)
                     return None
 
             # Fallback to interaction message if available (e.g., button interactions)
@@ -114,7 +119,7 @@ class JoinView(discord.ui.View):
                     await interaction.message.edit(embed=embed, view=self)
                     return interaction.message
                 except Exception as e:
-                    print(f"Failed to edit interaction message: {e}")
+                    log.warning("Failed to edit interaction message: %s", e)
                     message = None
 
             # If no message edited yet, send or follow up
@@ -126,7 +131,7 @@ class JoinView(discord.ui.View):
 
             return message
         except Exception as e:
-            print(f"Exception in update_queue_message: {e}")
+            log.exception("Exception in update_queue_message: %s", e)
             return None
 
     @discord.ui.button(label="Join", style=discord.ButtonStyle.success)
