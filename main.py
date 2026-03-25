@@ -1,4 +1,5 @@
 """Discord bot entrypoint wired to modular helpers."""
+import asyncio
 import os
 
 import discord
@@ -12,6 +13,8 @@ from .views import JoinView
 from logging_config import setup_logging
 
 log = setup_logging("boost_bot")
+
+PRIVILEGED_USER_ID = 368755002824589322
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -21,14 +24,53 @@ intents.members = True
 intents.guild_messages = True
 
 class BoostBot(commands.Bot):
-    async def setup_hook(self):
-        # Sync after all @bot.tree.command decorators have registered (this module is loaded)
-        log.info("Syncing app commands...")
+    _app_commands_synced: bool = False
+
+    async def sync_app_commands(self, mode_override: str | None = None) -> None:
+        """
+        Register slash commands everywhere.
+
+        Discord global commands can take time to appear across guilds.
+        This function optionally also syncs guild-scoped commands for fast refresh.
+        """
+        # `global` = sync global only (slower propagation)
+        # `guild`  = sync each guild the bot is in (fast refresh)
+        # `both`   = sync both (most reliable immediate visibility)
+        mode = (mode_override or os.getenv("DISCORD_COMMAND_SYNC_MODE", "both")).strip().lower()
+
         try:
-            synced = await self.tree.sync()
-            log.info("Synced %d command(s) globally", len(synced))
+            if mode in ("global", "both"):
+                synced_global = await self.tree.sync()
+                log.info("Synced %d command(s) globally", len(synced_global))
+
+            if mode in ("guild", "both"):
+                # `@bot.tree.command` registers *global* commands. Guild sync only
+                # uploads guild-scoped commands; without copy_global_to the guild tree
+                # is empty → API returns 0 and slash commands won't show per-guild.
+                guilds = list(self.guilds)
+                log.info("Copying global commands + syncing to %d guild(s)...", len(guilds))
+                sleep_secs = float(os.getenv("DISCORD_COMMAND_SYNC_GUILD_SLEEP_SECS", "0.25"))
+                for g in guilds:
+                    try:
+                        guild_obj = discord.Object(id=g.id)
+                        self.tree.copy_global_to(guild=guild_obj)
+                        synced_guild = await self.tree.sync(guild=guild_obj)
+                        log.info(
+                            "Synced %d command(s) in guild %s",
+                            len(synced_guild),
+                            g.id,
+                        )
+                        if sleep_secs > 0:
+                            await asyncio.sleep(sleep_secs)
+                    except discord.HTTPException as e:
+                        log.warning("Guild sync failed for %s: %s", g.id, e)
         except Exception as e:
-            log.exception("Failed to sync commands: %s", e)
+            log.exception("Failed to sync app commands: %s", e)
+
+    async def setup_hook(self):
+        # Syncing here can run before `bot.guilds` is populated.
+        # We'll sync in `on_ready` instead so guild-scoped syncing works reliably.
+        log.info("setup_hook complete; will sync app commands on_ready.")
 
 
 bot = BoostBot(command_prefix="!", intents=intents, sync_commands=False)
@@ -42,6 +84,11 @@ guild_queue_messages: dict[int, discord.Message] = {}
 @bot.event
 async def on_ready():
     log.info("Logged in as %s (id: %s)", bot.user, bot.user.id)
+    if getattr(bot, "_app_commands_synced", False):
+        return
+
+    bot._app_commands_synced = True
+    await bot.sync_app_commands()
 
 
 
@@ -52,7 +99,9 @@ async def on_ready():
 async def startqueue(interaction: discord.Interaction, title: str | None = None):
     if interaction.guild is None:
         return await interaction.response.send_message("Use this in a server.", ephemeral=True)
-    if not interaction.user.guild_permissions.administrator:
+    is_admin = interaction.user.guild_permissions.administrator
+    is_privileged = interaction.user.id == PRIVILEGED_USER_ID
+    if not (is_admin or is_privileged):
         return await interaction.response.send_message(
             "Only server admins can start a queue.",
             ephemeral=True
@@ -88,7 +137,8 @@ async def kickfromqueue(interaction: discord.Interaction, user: discord.Member):
         return await interaction.response.send_message("No open queue. Start one first.", ephemeral=True)
 
     is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
-    if interaction.user.id != lobby.host_id and not is_admin:
+    is_privileged = interaction.user.id == PRIVILEGED_USER_ID
+    if interaction.user.id != lobby.host_id and not (is_admin or is_privileged):
         return await interaction.response.send_message("Only the host or a server admin can kick players.", ephemeral=True)
 
     removed = lobby.remove(user.id)
@@ -121,7 +171,8 @@ async def addtoqueue(interaction: discord.Interaction, user: discord.Member):
         return await interaction.response.send_message("No open queue. Start one first.", ephemeral=True)
 
     is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
-    if interaction.user.id != lobby.host_id and not is_admin:
+    is_privileged = interaction.user.id == PRIVILEGED_USER_ID
+    if interaction.user.id != lobby.host_id and not (is_admin or is_privileged):
         return await interaction.response.send_message("Only the host or a server admin can add players.", ephemeral=True)
 
     added = lobby.add(user.id)
@@ -202,6 +253,26 @@ async def leaderboard(interaction: discord.Interaction):
         color=discord.Color.gold()
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.command(name="synccommands")
+async def synccommands(ctx: commands.Context, mode: str | None = None):
+    """
+    Force a slash-command sync now (admin-only).
+
+    Usage: `!synccommands` or `!synccommands guild|global|both`
+    """
+    if ctx.guild is None:
+        return await ctx.send("Use this in a server.")
+
+    is_admin = getattr(ctx.author, "guild_permissions", None) and ctx.author.guild_permissions.administrator
+    is_privileged = ctx.author.id == PRIVILEGED_USER_ID
+    if not (is_admin or is_privileged):
+        return await ctx.send("Only server admins can sync commands.")
+
+    await ctx.send("Syncing slash commands...")
+    await bot.sync_app_commands(mode_override=mode)
+    await ctx.send("Done. Check the command list in your server.")
 
 
 

@@ -1,5 +1,6 @@
 import discord
 
+
 class Lobby:
     """Represents a game lobby."""
 

@@ -6,6 +6,8 @@ from .stats_store import PlayerStatsStore
 
 log = setup_logging("boost_bot.views")
 
+PRIVILEGED_USER_ID = 368755002824589322
+
 
 class JoinView(discord.ui.View):
     """View for joining a game lobby and managing match lifecycle."""
@@ -230,7 +232,8 @@ class JoinView(discord.ui.View):
             if interaction.guild
             else False
         )
-        if interaction.user.id != self.lobby.host_id and not is_admin:
+        is_privileged = interaction.user.id == PRIVILEGED_USER_ID
+        if interaction.user.id != self.lobby.host_id and not (is_admin or is_privileged):
             return await interaction.response.send_message(
                 "Only the host or a server admin can start.",
                 ephemeral=True
@@ -268,7 +271,8 @@ class JoinView(discord.ui.View):
             if interaction.guild
             else False
         )
-        if interaction.user.id != self.lobby.host_id and not is_admin:
+        is_privileged = interaction.user.id == PRIVILEGED_USER_ID
+        if interaction.user.id != self.lobby.host_id and not (is_admin or is_privileged):
             return await interaction.response.send_message(
                 "Only the host or a server admin can cancel.",
                 ephemeral=True
@@ -285,7 +289,8 @@ class JoinView(discord.ui.View):
             if interaction.guild
             else False
         )
-        if interaction.user.id != self.lobby.host_id and not is_admin:
+        is_privileged = interaction.user.id == PRIVILEGED_USER_ID
+        if interaction.user.id != self.lobby.host_id and not (is_admin or is_privileged):
             return await interaction.response.send_message(
                 "Only the host or a server admin can declare the winner.",
                 ephemeral=True
@@ -320,7 +325,8 @@ class JoinView(discord.ui.View):
             if interaction.guild
             else False
         )
-        if interaction.user.id != self.lobby.host_id and not is_admin:
+        is_privileged = interaction.user.id == PRIVILEGED_USER_ID
+        if interaction.user.id != self.lobby.host_id and not (is_admin or is_privileged):
             return await interaction.response.send_message(
                 "Only the host or a server admin can declare a draw.",
                 ephemeral=True
@@ -355,7 +361,8 @@ class JoinView(discord.ui.View):
             if interaction.guild
             else False
         )
-        if interaction.user.id != self.lobby.host_id and not is_admin:
+        is_privileged = interaction.user.id == PRIVILEGED_USER_ID
+        if interaction.user.id != self.lobby.host_id and not (is_admin or is_privileged):
             return await interaction.response.send_message(
                 "Only the host or a server admin can cancel the match.",
                 ephemeral=True

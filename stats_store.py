@@ -2,18 +2,20 @@ import os
 import json
 import aiofiles
 import discord
+from paths import DATA_DIR
 
 class PlayerStatsStore:
     """Async helper for reading/writing player stats to guild-specific JSON files."""
 
     def __init__(self, guild_id: int):
         self.guild_id = guild_id
-        self.file_path = os.path.join(
-            os.path.dirname(__file__),
-            "points",
-            f"{guild_id}.json",
-        )
-        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+        base_dir = os.path.join(DATA_DIR, "boost_bot", "points")
+        try:
+            os.makedirs(base_dir, exist_ok=True)
+        except FileNotFoundError:
+            os.makedirs(os.path.dirname(DATA_DIR), exist_ok=True)
+            os.makedirs(base_dir, exist_ok=True)
+        self.file_path = os.path.join(base_dir, f"{guild_id}.json")
 
     async def load(self) -> dict:
         try:
