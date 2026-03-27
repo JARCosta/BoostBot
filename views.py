@@ -1,6 +1,9 @@
+import math
+
 import discord
 
 from logging_config import setup_logging
+
 from .lobby import Lobby, format_player_mentions
 from .stats_store import PlayerStatsStore
 
@@ -19,6 +22,8 @@ class JoinView(discord.ui.View):
         self.team_a: list[int] = []
         self.team_b: list[int] = []
         self.points_delta = 25
+        self.forfeit_votes_a: set[int] = set()
+        self.forfeit_votes_b: set[int] = set()
 
     def _add_match_buttons(self):
         btn_a = discord.ui.Button(label="Team A Wins", style=discord.ButtonStyle.success)
@@ -47,6 +52,12 @@ class JoinView(discord.ui.View):
             await self.declare_winner(interaction, self.team_b, self.team_a)
         btn_b.callback = b_cb
         self.add_item(btn_b)
+
+        btn_ff = discord.ui.Button(label="Forfeit", style=discord.ButtonStyle.secondary)
+        async def ff_cb(interaction: discord.Interaction):
+            await self._forfeit_action(interaction)
+        btn_ff.callback = ff_cb
+        self.add_item(btn_ff)
 
         btn_c = discord.ui.Button(label="Cancel Match", style=discord.ButtonStyle.danger)
         async def c_cb(interaction: discord.Interaction):
@@ -90,9 +101,19 @@ class JoinView(discord.ui.View):
                     description="Teams are ready to play!",
                     color=discord.Color.orange()
                 )
+                team_a_value = ', '.join(mentions_a)
+                ff_a = len(self.forfeit_votes_a)
+                if ff_a:
+                    team_a_value += f" ({ff_a}/{self._forfeit_threshold(len(self.team_a))} forfeit votes)"
+
+                team_b_value = ', '.join(mentions_b)
+                ff_b = len(self.forfeit_votes_b)
+                if ff_b:
+                    team_b_value += f" ({ff_b}/{self._forfeit_threshold(len(self.team_b))} forfeit votes)"
+
                 embed.add_field(name="Host", value=host_text, inline=False)
-                embed.add_field(name=f"🔵 Team A ({team_a_total} pts)", value=', '.join(mentions_a), inline=False)
-                embed.add_field(name=f"🔴 Team B ({team_b_total} pts)", value=', '.join(mentions_b), inline=False)
+                embed.add_field(name=f"🔵 Team A ({team_a_total} pts)", value=team_a_value, inline=False)
+                embed.add_field(name=f"🔴 Team B ({team_b_total} pts)", value=team_b_value, inline=False)
                 if note:
                     embed.add_field(name="ℹ️ Info", value=note, inline=False)
             else:
@@ -282,6 +303,51 @@ class JoinView(discord.ui.View):
                 child.disabled = True
         await interaction.response.defer()
         await self.update_queue_message(interaction, note="Queue canceled by host.")
+
+    @staticmethod
+    def _forfeit_threshold(team_size: int) -> int:
+        """Minimum votes needed: more than 66% of the team (ceiling of 2/3)."""
+        return -(-team_size * 2 // 3)
+
+    async def _forfeit_action(self, interaction: discord.Interaction):
+        uid = interaction.user.id
+        if self.lobby.finished:
+            return await interaction.response.send_message("Match already ended.", ephemeral=True)
+        if uid in self.team_a:
+            team_votes, team, other_team = self.forfeit_votes_a, self.team_a, self.team_b
+        elif uid in self.team_b:
+            team_votes, team, other_team = self.forfeit_votes_b, self.team_b, self.team_a
+        else:
+            return await interaction.response.send_message("You're not in this match.", ephemeral=True)
+
+        if uid in team_votes:
+            team_votes.discard(uid)
+        else:
+            team_votes.add(uid)
+
+        await interaction.response.defer()
+
+        threshold = self._forfeit_threshold(len(team))
+        if len(team_votes) >= threshold:
+            store = PlayerStatsStore(interaction.guild.id)
+            await store.record_match(interaction.guild, other_team, team, delta=self.points_delta)
+            self.lobby.finished = True
+            for child in self.children:
+                if isinstance(child, discord.ui.Button):
+                    child.disabled = True
+            winners = ', '.join(
+                interaction.guild.get_member(u).mention if interaction.guild.get_member(u) else f'<@{u}>'
+                for u in other_team
+            )
+            losers = ', '.join(
+                interaction.guild.get_member(u).mention if interaction.guild.get_member(u) else f'<@{u}>'
+                for u in team
+            )
+            await self.update_queue_message(interaction,
+                note=f"Team forfeited!\nWinners (+{self.points_delta}): {winners}\nLosers (-{self.points_delta}): {losers}"
+            )
+        else:
+            await self.update_queue_message(interaction)
 
     async def declare_winner(self, interaction: discord.Interaction, winning_team, losing_team):
         is_admin = (
