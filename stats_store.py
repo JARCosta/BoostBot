@@ -1,21 +1,30 @@
-import os
 import json
+import os
+
 import aiofiles
 import discord
-from paths import DATA_DIR
+
+from paths import BOOST_PLAYERS_FILE, BOOST_DIR
+
 
 class PlayerStatsStore:
-    """Async helper for reading/writing player stats to guild-specific JSON files."""
+    """Async read/write for player stats shared with the Boost webapp.
+
+    Data lives in ``data/boost/players.json`` (Discord user ID strings as keys).
+    The ``guild_id`` argument is kept for call-site compatibility but does not
+    select a separate file; all guilds share the same leaderboard as the web UI.
+
+    Legacy per-guild files under ``data/boost_bot/points/`` are no longer used.
+    """
 
     def __init__(self, guild_id: int):
         self.guild_id = guild_id
-        base_dir = os.path.join(DATA_DIR, "boost_bot", "points")
         try:
-            os.makedirs(base_dir, exist_ok=True)
+            os.makedirs(BOOST_DIR, exist_ok=True)
         except FileNotFoundError:
-            os.makedirs(os.path.dirname(DATA_DIR), exist_ok=True)
-            os.makedirs(base_dir, exist_ok=True)
-        self.file_path = os.path.join(base_dir, f"{guild_id}.json")
+            os.makedirs(os.path.dirname(BOOST_DIR), exist_ok=True)
+            os.makedirs(BOOST_DIR, exist_ok=True)
+        self.file_path = BOOST_PLAYERS_FILE
 
     async def load(self) -> dict:
         try:
